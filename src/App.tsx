@@ -1,6 +1,9 @@
 import { useState, useCallback } from 'react';
 import type { Role, Screen, Child } from './types';
-import { getTasks, getAwardedStickers, getChildById } from './store';
+import type { Account } from './auth';
+import { getSession, setSession, clearSession, getAccountById } from './auth';
+import { getTasks, getAwardedStickers, getChildById, setStoreAccount } from './store';
+import { AuthScreen } from './components/AuthScreen';
 import { RoleSwitcher } from './components/RoleSwitcher';
 import { ParentHome } from './components/ParentHome';
 import { ChildHome } from './components/ChildHome';
@@ -13,7 +16,20 @@ import { ManageCategories } from './components/ManageCategories';
 import { ManageChildren } from './components/ManageChildren';
 import { Analytics } from './components/Analytics';
 
+function restoreSession(): Account | null {
+  const id = getSession();
+  if (!id) return null;
+  const account = getAccountById(id);
+  if (!account) {
+    clearSession();
+    return null;
+  }
+  setStoreAccount(account.id);
+  return account;
+}
+
 function App() {
+  const [account, setAccount] = useState<Account | null>(restoreSession);
   const [role, setRole] = useState<Role>('parent');
   const [screen, setScreen] = useState<Screen>('home');
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
@@ -21,6 +37,28 @@ function App() {
   const [refreshKey, setRefreshKey] = useState(0);
 
   const refresh = useCallback(() => setRefreshKey((k) => k + 1), []);
+
+  const handleLogin = (acc: Account) => {
+    setStoreAccount(acc.id);
+    setSession(acc.id);
+    setAccount(acc);
+    setRole('parent');
+    setScreen('home');
+  };
+
+  const handleLogout = () => {
+    clearSession();
+    setStoreAccount(null);
+    setAccount(null);
+    setRole('parent');
+    setScreen('home');
+    setSelectedTaskId(null);
+    setActiveChildId(null);
+  };
+
+  if (!account) {
+    return <AuthScreen onLogin={handleLogin} />;
+  }
 
   const allTasks = getTasks();
   const allStickers = getAwardedStickers();
@@ -56,19 +94,21 @@ function App() {
         <div className="max-w-2xl mx-auto px-4 py-3 flex items-center justify-between">
           <button
             onClick={goHome}
-            className="text-2xl font-bold bg-gradient-to-r from-primary to-pink text-transparent bg-clip-text hover:opacity-80 transition"
+            className="text-xl font-bold bg-gradient-to-r from-primary to-pink text-transparent bg-clip-text hover:opacity-80 transition"
           >
-            ⭐ StickerTask
+            ⭐ {account.familyName}
           </button>
           <RoleSwitcher
             role={role}
             activeChild={activeChild}
+            parentPin={account.parentPin}
             onSwitch={(r, childId) => {
               setRole(r);
               if (childId) setActiveChildId(childId);
               else if (r === 'parent') setActiveChildId(null);
               goHome();
             }}
+            onLogout={handleLogout}
           />
         </div>
       </header>

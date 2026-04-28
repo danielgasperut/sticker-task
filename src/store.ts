@@ -1,21 +1,32 @@
 import type { Task, AwardedSticker, CategoryDef, Child } from './types';
 import { DEFAULT_CATEGORIES } from './types';
 
-const TASKS_KEY = 'sticker-task:tasks';
-const STICKERS_KEY = 'sticker-task:stickers';
-const CATEGORIES_KEY = 'sticker-task:categories';
+let _accountId: string | null = null;
+
+export function setStoreAccount(accountId: string | null) {
+  _accountId = accountId;
+}
+
+function prefixed(key: string): string {
+  if (_accountId) return `sticker-task:${_accountId}:${key}`;
+  return `sticker-task:${key}`;
+}
+
+const TASKS_KEY = 'tasks';
+const STICKERS_KEY = 'stickers';
+const CATEGORIES_KEY = 'categories';
 
 function load<T>(key: string, fallback: T): T {
   try {
-    const raw = localStorage.getItem(key);
-    return raw ? JSON.parse(raw) : fallback;
+    const raw = localStorage.getItem(prefixed(key));
+    return raw ? JSON.parse(raw) : structuredClone(fallback);
   } catch {
-    return fallback;
+    return structuredClone(fallback);
   }
 }
 
 function save<T>(key: string, data: T) {
-  localStorage.setItem(key, JSON.stringify(data));
+  localStorage.setItem(prefixed(key), JSON.stringify(data));
 }
 
 export function getTasks(): Task[] {
@@ -104,7 +115,7 @@ export function getCategoryIcon(name: string): string {
   return cats.find((c) => c.name === name)?.icon ?? '📌';
 }
 
-const SLOTS_KEY = 'sticker-task:slots';
+const SLOTS_KEY = 'slots';
 
 export function getEnabledSlots(taskId: string): boolean[] {
   const all = load<Record<string, boolean[]>>(SLOTS_KEY, {});
@@ -125,7 +136,7 @@ export function resetTask(taskId: string) {
   save(SLOTS_KEY, all);
 }
 
-const CHILDREN_KEY = 'sticker-task:children';
+const CHILDREN_KEY = 'children';
 
 export function getChildren(): Child[] {
   return load<Child[]>(CHILDREN_KEY, []);
@@ -152,9 +163,9 @@ export function getChildById(childId: string): Child | undefined {
 }
 
 export function clearAllData() {
-  localStorage.removeItem(TASKS_KEY);
-  localStorage.removeItem(STICKERS_KEY);
-  localStorage.removeItem(CATEGORIES_KEY);
-  localStorage.removeItem(SLOTS_KEY);
-  localStorage.removeItem(CHILDREN_KEY);
+  localStorage.removeItem(prefixed(TASKS_KEY));
+  localStorage.removeItem(prefixed(STICKERS_KEY));
+  localStorage.removeItem(prefixed(CATEGORIES_KEY));
+  localStorage.removeItem(prefixed(SLOTS_KEY));
+  localStorage.removeItem(prefixed(CHILDREN_KEY));
 }

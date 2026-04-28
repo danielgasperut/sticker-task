@@ -1,16 +1,17 @@
 import { useState } from 'react';
+import { createPortal } from 'react-dom';
 import type { Role, Child } from '../types';
 import { getChildren } from '../store';
-
-const PARENT_PASSWORD = '4321';
 
 interface Props {
   role: Role;
   activeChild: Child | null;
+  parentPin: string;
   onSwitch: (role: Role, childId?: string) => void;
+  onLogout: () => void;
 }
 
-export function RoleSwitcher({ role, activeChild, onSwitch }: Props) {
+export function RoleSwitcher({ role, activeChild, parentPin, onSwitch, onLogout }: Props) {
   const [showPrompt, setShowPrompt] = useState(false);
   const [showChildPicker, setShowChildPicker] = useState(false);
   const [pin, setPin] = useState('');
@@ -41,7 +42,7 @@ export function RoleSwitcher({ role, activeChild, onSwitch }: Props) {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (pin === PARENT_PASSWORD) {
+    if (pin === parentPin) {
       setShowPrompt(false);
       setPin('');
       setError(false);
@@ -60,32 +61,41 @@ export function RoleSwitcher({ role, activeChild, onSwitch }: Props) {
 
   return (
     <>
-      <div className="flex bg-gray-100 rounded-full p-1 gap-1">
+      <div className="flex items-center gap-2">
+        <div className="flex bg-gray-100 rounded-full p-1 gap-1">
+          <button
+            onClick={handleParentClick}
+            className={`px-4 py-1.5 rounded-full text-sm font-medium transition ${
+              role === 'parent'
+                ? 'bg-primary text-white shadow-sm'
+                : 'text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            👨‍👩‍👧 Parent
+          </button>
+          <button
+            onClick={handleChildClick}
+            className={`px-4 py-1.5 rounded-full text-sm font-medium transition ${
+              role === 'child'
+                ? 'bg-pink text-white shadow-sm'
+                : 'text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            {activeChild ? `${activeChild.avatar} ${activeChild.name}` : '🧒 Child'}
+          </button>
+        </div>
         <button
-          onClick={handleParentClick}
-          className={`px-4 py-1.5 rounded-full text-sm font-medium transition ${
-            role === 'parent'
-              ? 'bg-primary text-white shadow-sm'
-              : 'text-gray-500 hover:text-gray-700'
-          }`}
+          onClick={onLogout}
+          className="text-gray-400 hover:text-gray-600 text-sm transition"
+          title="Sign out"
         >
-          👨‍👩‍👧 Parent
-        </button>
-        <button
-          onClick={handleChildClick}
-          className={`px-4 py-1.5 rounded-full text-sm font-medium transition ${
-            role === 'child'
-              ? 'bg-pink text-white shadow-sm'
-              : 'text-gray-500 hover:text-gray-700'
-          }`}
-        >
-          {activeChild ? `${activeChild.avatar} ${activeChild.name}` : '🧒 Child'}
+          🚪
         </button>
       </div>
 
-      {showChildPicker && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-sm">
-          <div className="bg-white rounded-2xl p-6 shadow-xl w-72 space-y-4">
+      {showChildPicker && createPortal(
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4 overflow-y-auto">
+          <div className="bg-white rounded-2xl p-6 shadow-xl w-72 space-y-4 my-auto">
             <div className="text-center">
               <div className="text-3xl mb-1">🧒</div>
               <div className="font-semibold text-gray-800">Who's playing?</div>
@@ -113,14 +123,15 @@ export function RoleSwitcher({ role, activeChild, onSwitch }: Props) {
               Cancel
             </button>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
-      {showPrompt && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-sm">
+      {showPrompt && createPortal(
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4 overflow-y-auto">
           <form
             onSubmit={handleSubmit}
-            className="bg-white rounded-2xl p-6 shadow-xl w-72 space-y-4"
+            className="bg-white rounded-2xl p-6 shadow-xl w-72 space-y-4 my-auto"
           >
             <div className="text-center">
               <div className="text-3xl mb-1">🔒</div>
@@ -166,7 +177,8 @@ export function RoleSwitcher({ role, activeChild, onSwitch }: Props) {
               </button>
             </div>
           </form>
-        </div>
+        </div>,
+        document.body
       )}
     </>
   );
