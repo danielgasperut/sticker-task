@@ -1,5 +1,28 @@
 import '@testing-library/jest-dom';
+import { vi } from 'vitest';
 
+// Mock Firebase so store.ts can import without a real backend
+vi.mock('../firebase', () => ({
+  auth: {},
+  db: {},
+}));
+
+vi.mock('firebase/firestore', () => ({
+  doc: vi.fn(),
+  getDoc: vi.fn(() => Promise.resolve({ exists: () => false, data: () => null })),
+  setDoc: vi.fn(() => Promise.resolve()),
+  onSnapshot: vi.fn(() => () => {}),
+}));
+
+vi.mock('firebase/auth', () => ({
+  getAuth: vi.fn(),
+  createUserWithEmailAndPassword: vi.fn(),
+  signInWithEmailAndPassword: vi.fn(),
+  signOut: vi.fn(),
+  onAuthStateChanged: vi.fn(),
+}));
+
+// Mock localStorage
 const localStorageMock = (() => {
   let store: Record<string, string> = {};
   return {
@@ -14,8 +37,10 @@ const localStorageMock = (() => {
 
 Object.defineProperty(globalThis, 'localStorage', { value: localStorageMock });
 
-beforeEach(() => {
+beforeEach(async () => {
   localStorage.clear();
+  const { setStoreAccount } = await import('../store');
+  setStoreAccount('test-user');
 });
 
 if (!globalThis.crypto?.randomUUID) {

@@ -1,8 +1,9 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import type { Role, Screen, Child } from './types';
-import type { Account } from './auth';
-import { getSession, setSession, clearSession, getAccountById } from './auth';
-import { getTasks, getAwardedStickers, getChildById, setStoreAccount } from './store';
+import type { User } from 'firebase/auth';
+import type { FamilyProfile } from './auth';
+import { onAuthChange, getFamilyProfile, logout } from './auth';
+import { getTasks, getAwardedStickers, getChildById, setStoreAccount, loadInitialData, setOnUpdate } from './store';
 import { AuthScreen } from './components/AuthScreen';
 import { RoleSwitcher } from './components/RoleSwitcher';
 import { ParentHome } from './components/ParentHome';
@@ -16,20 +17,10 @@ import { ManageCategories } from './components/ManageCategories';
 import { ManageChildren } from './components/ManageChildren';
 import { Analytics } from './components/Analytics';
 
-function restoreSession(): Account | null {
-  const id = getSession();
-  if (!id) return null;
-  const account = getAccountById(id);
-  if (!account) {
-    clearSession();
-    return null;
-  }
-  setStoreAccount(account.id);
-  return account;
-}
-
 function App() {
-  const [account, setAccount] = useState<Account | null>(restoreSession);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [user, setUser] = useState<User | null>(null);
+  const [profile, setProfile] = useState<FamilyProfile | null>(null);
   const [role, setRole] = useState<Role>('parent');
   const [screen, setScreen] = useState<Screen>('home');
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
@@ -38,25 +29,59 @@ function App() {
 
   const refresh = useCallback(() => setRefreshKey((k) => k + 1), []);
 
-  const handleLogin = (acc: Account) => {
-    setStoreAccount(acc.id);
-    setSession(acc.id);
-    setAccount(acc);
+  useEffect(() => {
+    setOnUpdate(refresh);
+    return () => setOnUpdate(null);
+  }, [refresh]);
+
+  useEffect(() => {
+    const unsub = onAuthChange(async (firebaseUser) => {
+      if (firebaseUser) {
+        setStoreAccount(firebaseUser.uid);
+        await loadInitialData();
+        const p = await getFamilyProfile(firebaseUser.uid);
+        setUser(firebaseUser);
+        setProfile(p);
+      } else {
+        setStoreAccount(null);
+        setUser(null);
+        setProfile(null);
+      }
+      setAuthLoading(false);
+    });
+    return unsub;
+  }, []);
+
+  const handleLogin = (firebaseUser: User, familyProfile: FamilyProfile) => {
+    setUser(firebaseUser);
+    setProfile(familyProfile);
     setRole('parent');
     setScreen('home');
   };
 
-  const handleLogout = () => {
-    clearSession();
+  const handleLogout = async () => {
+    await logout();
     setStoreAccount(null);
-    setAccount(null);
+    setUser(null);
+    setProfile(null);
     setRole('parent');
     setScreen('home');
     setSelectedTaskId(null);
     setActiveChildId(null);
   };
 
-  if (!account) {
+  if (authLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <div className="text-5xl mb-3 animate-bounce">⭐</div>
+          <div className="text-gray-400">Loading...</div>
+        </div>
+      </div>
+    );
+  }
+
+  if (!user || !profile) {
     return <AuthScreen onLogin={handleLogin} />;
   }
 
@@ -96,12 +121,12 @@ function App() {
             onClick={goHome}
             className="text-xl font-bold bg-gradient-to-r from-primary to-pink text-transparent bg-clip-text hover:opacity-80 transition"
           >
-            ⭐ {account.familyName}
+            ⭐ {profile.familyName}
           </button>
           <RoleSwitcher
             role={role}
             activeChild={activeChild}
-            parentPin={account.parentPin}
+            parentPin={profile.parentPin}
             onSwitch={(r, childId) => {
               setRole(r);
               if (childId) setActiveChildId(childId);

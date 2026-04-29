@@ -1,117 +1,113 @@
-import { describe, it, expect } from 'vitest';
-import { register, login, getSession, setSession, clearSession, getAccountById } from '../auth';
+import { describe, it, expect, vi } from 'vitest';
+import { register, login } from '../auth';
+
+const mockCreateUser = vi.fn();
+const mockSignIn = vi.fn();
+
+vi.mock('firebase/auth', () => ({
+  getAuth: vi.fn(),
+  createUserWithEmailAndPassword: (...args: unknown[]) => mockCreateUser(...args),
+  signInWithEmailAndPassword: (...args: unknown[]) => mockSignIn(...args),
+  signOut: vi.fn(),
+  onAuthStateChanged: vi.fn(),
+}));
+
+vi.mock('firebase/firestore', () => ({
+  doc: vi.fn(),
+  getDoc: vi.fn(() => Promise.resolve({
+    exists: () => true,
+    data: () => ({ familyName: 'Test Family', parentPin: '4321', createdAt: 1000 }),
+  })),
+  setDoc: vi.fn(() => Promise.resolve()),
+  onSnapshot: vi.fn(() => () => {}),
+}));
 
 describe('Auth', () => {
-  describe('registration', () => {
-    it('creates account with hashed password', async () => {
-      const result = await register('Smith Family', 'smiths', 'pass1234', '4321');
-      expect(result.ok).toBe(true);
-      if (!result.ok) return;
-      expect(result.account.familyName).toBe('Smith Family');
-      expect(result.account.username).toBe('smiths');
-      expect(result.account.parentPin).toBe('4321');
-      expect(result.account.hash).not.toBe('pass1234');
-      expect(result.account.hash.length).toBe(64);
-      expect(result.account.salt.length).toBe(32);
+  describe('registration validation', () => {
+    it('rejects empty family name', async () => {
+      const result = await register('', 'user', 'password', '4321');
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.error).toMatch(/family name/i);
     });
 
-    it('rejects duplicate username (case-insensitive)', async () => {
-      await register('Family A', 'testuser', 'pass1234', '1111');
-      const result = await register('Family B', 'TestUser', 'otherpass', '2222');
+    it('rejects empty username', async () => {
+      const result = await register('Family', '', 'password', '4321');
       expect(result.ok).toBe(false);
-      if (!result.ok) expect(result.error).toMatch(/already taken/i);
+      if (!result.ok) expect(result.error).toMatch(/username/i);
     });
 
     it('rejects short password', async () => {
-      const result = await register('Family', 'user1', 'abc', '4321');
+      const result = await register('Family', 'user', 'abc', '4321');
       expect(result.ok).toBe(false);
-      if (!result.ok) expect(result.error).toMatch(/at least 4/);
+      if (!result.ok) expect(result.error).toMatch(/6 characters/);
     });
 
     it('rejects non-numeric PIN', async () => {
-      const result = await register('Family', 'user2', 'pass1234', 'abcd');
+      const result = await register('Family', 'user', 'password', 'abcd');
       expect(result.ok).toBe(false);
       if (!result.ok) expect(result.error).toMatch(/digits/);
     });
 
     it('rejects short PIN', async () => {
-      const result = await register('Family', 'user3', 'pass1234', '12');
+      const result = await register('Family', 'user', 'password', '12');
       expect(result.ok).toBe(false);
       if (!result.ok) expect(result.error).toMatch(/at least 4/);
     });
   });
 
-  describe('login', () => {
-    it('authenticates with correct password', async () => {
-      await register('Login Test', 'loginuser', 'mypassword', '9999');
-      const result = await login('loginuser', 'mypassword');
+  describe('registration with Firebase', () => {
+    it('creates account and stores profile', async () => {
+      mockCreateUser.mockResolvedValueOnce({ user: { uid: 'uid-1' } });
+      const result = await register('Smith Family', 'smiths', 'pass1234', '4321');
       expect(result.ok).toBe(true);
-      if (result.ok) expect(result.account.familyName).toBe('Login Test');
-    });
-
-    it('rejects wrong password', async () => {
-      await register('Family', 'wrongpw', 'correct', '1234');
-      const result = await login('wrongpw', 'incorrect');
-      expect(result.ok).toBe(false);
-      if (!result.ok) expect(result.error).toMatch(/wrong password/i);
-    });
-
-    it('rejects unknown username', async () => {
-      const result = await login('nonexistent', 'anything');
-      expect(result.ok).toBe(false);
-      if (!result.ok) expect(result.error).toMatch(/not found/i);
-    });
-
-    it('login is case-insensitive on username', async () => {
-      await register('Case Test', 'CaseUser', 'pass1234', '5555');
-      const result = await login('caseuser', 'pass1234');
-      expect(result.ok).toBe(true);
-    });
-  });
-
-  describe('session', () => {
-    it('session persists and retrieves', async () => {
-      const reg = await register('Session Test', 'sessuser', 'pass1234', '7777');
-      if (!reg.ok) throw new Error('setup failed');
-      setSession(reg.account.id);
-      expect(getSession()).toBe(reg.account.id);
-    });
-
-    it('clearSession removes session', () => {
-      setSession('some-id');
-      clearSession();
-      expect(getSession()).toBeNull();
-    });
-
-    it('getAccountById returns correct account', async () => {
-      const reg = await register('Find Me', 'findme', 'pass1234', '8888');
-      if (!reg.ok) throw new Error('setup failed');
-      const found = getAccountById(reg.account.id);
-      expect(found).toBeDefined();
-      expect(found!.familyName).toBe('Find Me');
-    });
-
-    it('getAccountById returns undefined for unknown id', () => {
-      expect(getAccountById('nonexistent-id')).toBeUndefined();
-    });
-  });
-
-  describe('password security', () => {
-    it('same password produces different hashes (different salt)', async () => {
-      const r1 = await register('Family 1', 'hashtest1', 'samepass', '1111');
-      const r2 = await register('Family 2', 'hashtest2', 'samepass', '2222');
-      expect(r1.ok && r2.ok).toBe(true);
-      if (r1.ok && r2.ok) {
-        expect(r1.account.hash).not.toBe(r2.account.hash);
-        expect(r1.account.salt).not.toBe(r2.account.salt);
+      if (result.ok) {
+        expect(result.user.uid).toBe('uid-1');
+        expect(result.profile.familyName).toBe('Smith Family');
+        expect(result.profile.parentPin).toBe('4321');
       }
     });
 
-    it('password is not stored in plaintext anywhere in account', async () => {
-      const result = await register('Plaintext Check', 'ptcheck', 'secretpass', '4444');
-      if (!result.ok) throw new Error('setup failed');
-      const json = JSON.stringify(result.account);
-      expect(json).not.toContain('secretpass');
+    it('handles duplicate username from Firebase', async () => {
+      mockCreateUser.mockRejectedValueOnce({ code: 'auth/email-already-in-use' });
+      const result = await register('Family', 'taken', 'pass1234', '4321');
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.error).toMatch(/already taken/i);
+    });
+
+    it('handles weak password from Firebase', async () => {
+      mockCreateUser.mockRejectedValueOnce({ code: 'auth/weak-password' });
+      const result = await register('Family', 'user', 'pass1234', '4321');
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.error).toMatch(/weak/i);
+    });
+  });
+
+  describe('login with Firebase', () => {
+    it('authenticates and returns profile', async () => {
+      mockSignIn.mockResolvedValueOnce({ user: { uid: 'uid-2' } });
+      const result = await login('testuser', 'password');
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.user.uid).toBe('uid-2');
+        expect(result.profile.familyName).toBe('Test Family');
+      }
+    });
+
+    it('rejects invalid credentials', async () => {
+      mockSignIn.mockRejectedValueOnce({ code: 'auth/invalid-credential' });
+      const result = await login('wrong', 'wrong');
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.error).toMatch(/invalid/i);
+    });
+
+    it('converts username to email format', async () => {
+      mockSignIn.mockResolvedValueOnce({ user: { uid: 'uid-3' } });
+      await login('MyUser', 'pass');
+      expect(mockSignIn).toHaveBeenCalledWith(
+        expect.anything(),
+        'myuser@stickertask.local',
+        'pass',
+      );
     });
   });
 });

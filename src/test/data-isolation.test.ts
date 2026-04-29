@@ -21,91 +21,74 @@ const sticker1: AwardedSticker = { id: 's1', stickerId: 'x', taskId: 't1', slotI
 const child1: Child = { id: 'c1', name: 'Alice', avatar: '👧' };
 
 describe('Data Isolation', () => {
-  it('different accounts have separate tasks', () => {
+  it('switching accounts resets cache', () => {
     setStoreAccount('family-a');
     saveTask(task1);
     expect(getTasks()).toHaveLength(1);
 
     setStoreAccount('family-b');
     expect(getTasks()).toHaveLength(0);
+  });
+
+  it('each account has independent tasks', () => {
+    setStoreAccount('family-c');
+    saveTask(task1);
+
+    setStoreAccount('family-d');
     saveTask(task2);
     expect(getTasks()).toHaveLength(1);
     expect(getTasks()[0].title).toBe('Task B');
-
-    setStoreAccount('family-a');
-    expect(getTasks()).toHaveLength(1);
-    expect(getTasks()[0].title).toBe('Task A');
   });
 
-  it('different accounts have separate stickers', () => {
-    setStoreAccount('family-c');
+  it('each account has independent stickers', () => {
+    setStoreAccount('family-e');
     saveTask(task1);
     awardSticker(sticker1);
     expect(getAwardedStickers()).toHaveLength(1);
 
-    setStoreAccount('family-d');
+    setStoreAccount('family-f');
     expect(getAwardedStickers()).toHaveLength(0);
   });
 
-  it('different accounts have separate children', () => {
-    setStoreAccount('family-e');
+  it('each account has independent children', () => {
+    setStoreAccount('family-g');
     saveChild(child1);
     expect(getChildren()).toHaveLength(1);
 
-    setStoreAccount('family-f');
+    setStoreAccount('family-h');
     expect(getChildren()).toHaveLength(0);
   });
 
-  it('different accounts have separate categories', () => {
-    setStoreAccount('family-g');
+  it('each account has independent categories', () => {
+    setStoreAccount('family-i');
     addCategory({ name: 'Swimming', icon: '🏊' });
-    const catsG = getCategories();
-    expect(catsG.some((c) => c.name === 'Swimming')).toBe(true);
+    expect(getCategories().some((c) => c.name === 'Swimming')).toBe(true);
 
-    setStoreAccount('family-h');
-    const catsH = getCategories();
-    expect(catsH.some((c) => c.name === 'Swimming')).toBe(false);
+    setStoreAccount('family-j');
+    expect(getCategories().some((c) => c.name === 'Swimming')).toBe(false);
   });
 
-  it('different accounts have separate slot permissions', () => {
-    setStoreAccount('family-i');
+  it('each account has independent slot permissions', () => {
+    setStoreAccount('family-k');
     setEnabledSlots('t1', [true, false, true]);
     expect(getEnabledSlots('t1')).toEqual([true, false, true]);
 
-    setStoreAccount('family-j');
+    setStoreAccount('family-l');
     expect(getEnabledSlots('t1')).toEqual([]);
   });
 
-  it('clearAllData only clears active account', () => {
-    setStoreAccount('family-keep');
+  it('clearAllData resets current account cache', () => {
+    setStoreAccount('family-m');
     saveTask(task1);
     saveChild(child1);
     awardSticker(sticker1);
+    addCategory({ name: 'Dance', icon: '💃' });
 
-    setStoreAccount('family-wipe');
-    saveTask(task2);
-    saveChild({ id: 'c2', name: 'Bob', avatar: '👦' });
     clearAllData();
 
     expect(getTasks()).toHaveLength(0);
     expect(getChildren()).toHaveLength(0);
     expect(getAwardedStickers()).toHaveLength(0);
-
-    setStoreAccount('family-keep');
-    expect(getTasks()).toHaveLength(1);
-    expect(getChildren()).toHaveLength(1);
-    expect(getAwardedStickers()).toHaveLength(1);
-  });
-
-  it('null account falls back to unprefixed keys', () => {
-    setStoreAccount(null);
-    saveTask(task1);
-    expect(getTasks()).toHaveLength(1);
-
-    setStoreAccount('some-family');
-    expect(getTasks()).toHaveLength(0);
-
-    setStoreAccount(null);
-    expect(getTasks()).toHaveLength(1);
+    expect(getCategories().some((c) => c.name === 'Dance')).toBe(false);
   });
 });

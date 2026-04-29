@@ -1,73 +1,128 @@
+import { doc, getDoc, setDoc, onSnapshot } from 'firebase/firestore';
+import type { Unsubscribe } from 'firebase/firestore';
+import { db } from './firebase';
 import type { Task, AwardedSticker, CategoryDef, Child } from './types';
 import { DEFAULT_CATEGORIES } from './types';
 
-let _accountId: string | null = null;
+let _uid: string | null = null;
+let _unsubscribe: Unsubscribe | null = null;
+let _onUpdate: (() => void) | null = null;
 
-export function setStoreAccount(accountId: string | null) {
-  _accountId = accountId;
+interface FamilyData {
+  tasks: Task[];
+  stickers: AwardedSticker[];
+  categories: CategoryDef[];
+  children: Child[];
+  slots: Record<string, boolean[]>;
 }
 
-function prefixed(key: string): string {
-  if (_accountId) return `sticker-task:${_accountId}:${key}`;
-  return `sticker-task:${key}`;
+const _cache: FamilyData = {
+  tasks: [],
+  stickers: [],
+  categories: [...DEFAULT_CATEGORIES],
+  children: [],
+  slots: {},
+};
+
+function familyDoc() {
+  if (!_uid) throw new Error('Not logged in');
+  return doc(db, 'families', _uid, 'data', 'all');
 }
 
-const TASKS_KEY = 'tasks';
-const STICKERS_KEY = 'stickers';
-const CATEGORIES_KEY = 'categories';
+function persist() {
+  if (!_uid) return;
+  const data: FamilyData = {
+    tasks: _cache.tasks,
+    stickers: _cache.stickers,
+    categories: _cache.categories,
+    children: _cache.children,
+    slots: _cache.slots,
+  };
+  setDoc(familyDoc(), data, { merge: true });
+}
 
-function load<T>(key: string, fallback: T): T {
-  try {
-    const raw = localStorage.getItem(prefixed(key));
-    return raw ? JSON.parse(raw) : structuredClone(fallback);
-  } catch {
-    return structuredClone(fallback);
+export function setStoreAccount(uid: string | null) {
+  if (_unsubscribe) {
+    _unsubscribe();
+    _unsubscribe = null;
+  }
+  _uid = uid;
+
+  _cache.tasks = [];
+  _cache.stickers = [];
+  _cache.categories = [...DEFAULT_CATEGORIES];
+  _cache.children = [];
+  _cache.slots = {};
+
+  if (uid) {
+    _unsubscribe = onSnapshot(doc(db, 'families', uid, 'data', 'all'), (snap) => {
+      if (snap.exists()) {
+        const data = snap.data() as FamilyData;
+        _cache.tasks = data.tasks ?? [];
+        _cache.stickers = data.stickers ?? [];
+        _cache.categories = data.categories?.length ? data.categories : [...DEFAULT_CATEGORIES];
+        _cache.children = data.children ?? [];
+        _cache.slots = data.slots ?? {};
+        _onUpdate?.();
+      }
+    });
   }
 }
 
-function save<T>(key: string, data: T) {
-  localStorage.setItem(prefixed(key), JSON.stringify(data));
+export async function loadInitialData(): Promise<void> {
+  if (!_uid) return;
+  const snap = await getDoc(familyDoc());
+  if (snap.exists()) {
+    const data = snap.data() as FamilyData;
+    _cache.tasks = data.tasks ?? [];
+    _cache.stickers = data.stickers ?? [];
+    _cache.categories = data.categories?.length ? data.categories : [...DEFAULT_CATEGORIES];
+    _cache.children = data.children ?? [];
+    _cache.slots = data.slots ?? {};
+  }
 }
 
+export function setOnUpdate(fn: (() => void) | null) {
+  _onUpdate = fn;
+}
+
+// --- Tasks ---
+
 export function getTasks(): Task[] {
-  return load<Task[]>(TASKS_KEY, []);
+  return _cache.tasks;
 }
 
 export function saveTask(task: Task) {
-  const tasks = getTasks();
-  const idx = tasks.findIndex((t) => t.id === task.id);
-  if (idx >= 0) {
-    tasks[idx] = task;
-  } else {
-    tasks.push(task);
-  }
-  save(TASKS_KEY, tasks);
+  const idx = _cache.tasks.findIndex((t) => t.id === task.id);
+  if (idx >= 0) _cache.tasks[idx] = task;
+  else _cache.tasks.push(task);
+  persist();
 }
 
 export function deleteTask(taskId: string) {
-  const tasks = getTasks().filter((t) => t.id !== taskId);
-  save(TASKS_KEY, tasks);
-  const stickers = getAwardedStickers().filter((s) => s.taskId !== taskId);
-  save(STICKERS_KEY, stickers);
+  _cache.tasks = _cache.tasks.filter((t) => t.id !== taskId);
+  _cache.stickers = _cache.stickers.filter((s) => s.taskId !== taskId);
+  persist();
 }
 
+// --- Stickers ---
+
 export function getAwardedStickers(): AwardedSticker[] {
-  return load<AwardedSticker[]>(STICKERS_KEY, []);
+  return _cache.stickers;
 }
 
 export function awardSticker(sticker: AwardedSticker) {
-  const stickers = getAwardedStickers();
-  stickers.push(sticker);
-  save(STICKERS_KEY, stickers);
+  _cache.stickers.push(sticker);
+  persist();
 }
 
 export function removeAwardedSticker(awardedStickerId: string) {
-  const stickers = getAwardedStickers().filter((s) => s.id !== awardedStickerId);
-  save(STICKERS_KEY, stickers);
+  _cache.stickers = _cache.stickers.filter((s) => s.id !== awardedStickerId);
+  persist();
 }
 
 export function getStickersForTask(taskId: string): AwardedSticker[] {
-  return getAwardedStickers().filter((s) => s.taskId === taskId);
+  return _cache.stickers.filter((s) => s.taskId === taskId);
 }
 
 export function getStickerAtSlot(taskId: string, slotIndex: number): AwardedSticker | undefined {
@@ -90,82 +145,76 @@ export function nextEmptySlot(taskId: string, cost: number, enabledOnly?: boolea
   return null;
 }
 
+// --- Categories ---
+
 export function getCategories(): CategoryDef[] {
-  return load<CategoryDef[]>(CATEGORIES_KEY, DEFAULT_CATEGORIES);
+  return _cache.categories;
 }
 
 export function saveCategories(categories: CategoryDef[]) {
-  save(CATEGORIES_KEY, categories);
+  _cache.categories = categories;
+  persist();
 }
 
 export function addCategory(cat: CategoryDef) {
-  const cats = getCategories();
-  if (cats.some((c) => c.name.toLowerCase() === cat.name.toLowerCase())) return;
-  cats.push(cat);
-  saveCategories(cats);
+  if (_cache.categories.some((c) => c.name.toLowerCase() === cat.name.toLowerCase())) return;
+  _cache.categories.push(cat);
+  persist();
 }
 
 export function removeCategory(name: string) {
-  const cats = getCategories().filter((c) => c.name !== name);
-  saveCategories(cats);
+  _cache.categories = _cache.categories.filter((c) => c.name !== name);
+  persist();
 }
 
 export function getCategoryIcon(name: string): string {
-  const cats = getCategories();
-  return cats.find((c) => c.name === name)?.icon ?? '📌';
+  return _cache.categories.find((c) => c.name === name)?.icon ?? '📌';
 }
 
-const SLOTS_KEY = 'slots';
+// --- Slots ---
 
 export function getEnabledSlots(taskId: string): boolean[] {
-  const all = load<Record<string, boolean[]>>(SLOTS_KEY, {});
-  return all[taskId] ?? [];
+  return _cache.slots[taskId] ?? [];
 }
 
 export function setEnabledSlots(taskId: string, slots: boolean[]) {
-  const all = load<Record<string, boolean[]>>(SLOTS_KEY, {});
-  all[taskId] = slots;
-  save(SLOTS_KEY, all);
+  _cache.slots[taskId] = slots;
+  persist();
 }
 
 export function resetTask(taskId: string) {
-  const stickers = getAwardedStickers().filter((s) => s.taskId !== taskId);
-  save(STICKERS_KEY, stickers);
-  const all = load<Record<string, boolean[]>>(SLOTS_KEY, {});
-  delete all[taskId];
-  save(SLOTS_KEY, all);
+  _cache.stickers = _cache.stickers.filter((s) => s.taskId !== taskId);
+  delete _cache.slots[taskId];
+  persist();
 }
 
-const CHILDREN_KEY = 'children';
+// --- Children ---
 
 export function getChildren(): Child[] {
-  return load<Child[]>(CHILDREN_KEY, []);
+  return _cache.children;
 }
 
 export function saveChild(child: Child) {
-  const children = getChildren();
-  const idx = children.findIndex((c) => c.id === child.id);
-  if (idx >= 0) {
-    children[idx] = child;
-  } else {
-    children.push(child);
-  }
-  save(CHILDREN_KEY, children);
+  const idx = _cache.children.findIndex((c) => c.id === child.id);
+  if (idx >= 0) _cache.children[idx] = child;
+  else _cache.children.push(child);
+  persist();
 }
 
 export function deleteChild(childId: string) {
-  const children = getChildren().filter((c) => c.id !== childId);
-  save(CHILDREN_KEY, children);
+  _cache.children = _cache.children.filter((c) => c.id !== childId);
+  persist();
 }
 
 export function getChildById(childId: string): Child | undefined {
-  return getChildren().find((c) => c.id === childId);
+  return _cache.children.find((c) => c.id === childId);
 }
 
 export function clearAllData() {
-  localStorage.removeItem(prefixed(TASKS_KEY));
-  localStorage.removeItem(prefixed(STICKERS_KEY));
-  localStorage.removeItem(prefixed(CATEGORIES_KEY));
-  localStorage.removeItem(prefixed(SLOTS_KEY));
-  localStorage.removeItem(prefixed(CHILDREN_KEY));
+  _cache.tasks = [];
+  _cache.stickers = [];
+  _cache.categories = [...DEFAULT_CATEGORIES];
+  _cache.children = [];
+  _cache.slots = {};
+  persist();
 }

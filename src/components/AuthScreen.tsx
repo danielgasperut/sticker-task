@@ -1,9 +1,11 @@
 import { useState } from 'react';
-import type { Account } from '../auth';
+import type { User } from 'firebase/auth';
+import type { FamilyProfile } from '../auth';
 import { login, register } from '../auth';
+import { setStoreAccount, loadInitialData } from '../store';
 
 interface Props {
-  onLogin: (account: Account) => void;
+  onLogin: (user: User, profile: FamilyProfile) => void;
 }
 
 export function AuthScreen({ onLogin }: Props) {
@@ -24,19 +26,18 @@ export function AuthScreen({ onLogin }: Props) {
       if (mode === 'login') {
         const result = await login(username, password);
         if (result.ok) {
-          onLogin(result.account);
+          setStoreAccount(result.user.uid);
+          await loadInitialData();
+          onLogin(result.user, result.profile);
         } else {
           setError(result.error);
         }
       } else {
-        if (!familyName.trim()) {
-          setError('Family name is required');
-          setLoading(false);
-          return;
-        }
         const result = await register(familyName.trim(), username, password, parentPin);
         if (result.ok) {
-          onLogin(result.account);
+          setStoreAccount(result.user.uid);
+          await loadInitialData();
+          onLogin(result.user, result.profile);
         } else {
           setError(result.error);
         }
@@ -110,7 +111,7 @@ export function AuthScreen({ onLogin }: Props) {
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder="Enter password"
+              placeholder="Enter password (6+ characters)"
               autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
               className="w-full border border-gray-200 rounded-xl px-4 py-3 text-gray-800 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
             />
