@@ -36,18 +36,25 @@ function App() {
 
   useEffect(() => {
     const unsub = onAuthChange(async (firebaseUser) => {
-      if (firebaseUser) {
-        setStoreAccount(firebaseUser.uid);
-        await loadInitialData();
-        const p = await getFamilyProfile(firebaseUser.uid);
-        setUser(firebaseUser);
-        setProfile(p);
-      } else {
+      try {
+        if (firebaseUser) {
+          setStoreAccount(firebaseUser.uid);
+          await loadInitialData();
+          const p = await getFamilyProfile(firebaseUser.uid);
+          setUser(firebaseUser);
+          setProfile(p);
+        } else {
+          setStoreAccount(null);
+          setUser(null);
+          setProfile(null);
+        }
+      } catch {
         setStoreAccount(null);
         setUser(null);
         setProfile(null);
+      } finally {
+        setAuthLoading(false);
       }
-      setAuthLoading(false);
     });
     return unsub;
   }, []);

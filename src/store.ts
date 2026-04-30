@@ -71,7 +71,10 @@ export function setStoreAccount(uid: string | null) {
 
 export async function loadInitialData(): Promise<void> {
   if (!_uid) return;
-  const snap = await getDoc(familyDoc());
+  const timeout = new Promise<never>((_, reject) =>
+    setTimeout(() => reject(new Error('Firestore load timeout')), 8000),
+  );
+  const snap = await Promise.race([getDoc(familyDoc()), timeout]);
   if (snap.exists()) {
     const data = snap.data() as FamilyData;
     _cache.tasks = data.tasks ?? [];
