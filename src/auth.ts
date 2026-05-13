@@ -6,13 +6,14 @@ import {
   sendPasswordResetEmail,
 } from 'firebase/auth';
 import type { User } from 'firebase/auth';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { doc, getDoc, setDoc, collection, getDocs } from 'firebase/firestore';
 import { auth, db } from './firebase';
 
 export interface FamilyProfile {
   familyName: string;
   parentPin: string;
   createdAt: number;
+  isAdmin?: boolean;
 }
 
 export async function register(
@@ -40,6 +41,8 @@ export async function register(
   }
 }
 
+const ADMIN_EMAILS = ['daniel.gasperut@gmail.com'];
+
 export async function login(
   email: string,
   password: string,
@@ -48,6 +51,10 @@ export async function login(
     const cred = await signInWithEmailAndPassword(auth, email.trim().toLowerCase(), password);
     const profile = await getFamilyProfile(cred.user.uid);
     if (!profile) return { ok: false, error: 'Family profile not found' };
+    if (ADMIN_EMAILS.includes(email.trim().toLowerCase()) && !profile.isAdmin) {
+      profile.isAdmin = true;
+      await updateFamilyProfile(cred.user.uid, { isAdmin: true });
+    }
     return { ok: true, user: cred.user, profile };
   } catch (e: unknown) {
     const code = (e as { code?: string }).code;
@@ -82,6 +89,33 @@ export async function getFamilyProfile(uid: string): Promise<FamilyProfile | nul
 
 export async function updateFamilyProfile(uid: string, updates: Partial<FamilyProfile>) {
   await setDoc(doc(db, 'families', uid), updates, { merge: true });
+}
+
+export interface AdminFamilyData {
+  uid: string;
+  profile: FamilyProfile;
+  data: {
+    tasks: unknown[];
+    stickers: unknown[];
+    children: unknown[];
+    categories: unknown[];
+  } | null;
+}
+
+export async function getAllFamilies(): Promise<AdminFamilyData[]> {
+  const familiesSnap = await getDocs(collection(db, 'families'));
+  const results: AdminFamilyData[] = [];
+
+  for (const familyDoc of familiesSnap.docs) {
+    const profile = familyDoc.data() as FamilyProfile;
+    const dataSnap = await getDoc(doc(db, 'families', familyDoc.id, 'data', 'all'));
+    const data = dataSnap.exists()
+      ? (dataSnap.data() as AdminFamilyData['data'])
+      : null;
+    results.push({ uid: familyDoc.id, profile, data });
+  }
+
+  return results;
 }
 
 export function onAuthChange(callback: (user: User | null) => void) {

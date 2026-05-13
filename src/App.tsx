@@ -16,6 +16,7 @@ import { TrophyRoom } from './components/TrophyRoom';
 import { ManageCategories } from './components/ManageCategories';
 import { ManageChildren } from './components/ManageChildren';
 import { Analytics } from './components/Analytics';
+import { AdminDashboard } from './components/AdminDashboard';
 
 function App() {
   const [authLoading, setAuthLoading] = useState(true);
@@ -130,6 +131,15 @@ function App() {
           >
             ⭐ {profile.familyName}
           </button>
+          <div className="flex items-center gap-2">
+            {profile.isAdmin && (
+              <button
+                onClick={() => setScreen('admin')}
+                className="text-xs bg-gray-800 text-white px-2 py-1 rounded-full hover:bg-gray-700 transition"
+              >
+                Admin
+              </button>
+            )}
           <RoleSwitcher
             role={role}
             activeChild={activeChild}
@@ -142,6 +152,7 @@ function App() {
             }}
             onLogout={handleLogout}
           />
+          </div>
         </div>
       </header>
 
@@ -195,6 +206,9 @@ function App() {
         )}
         {screen === 'analytics' && (
           <Analytics tasks={allTasks} stickers={allStickers} onBack={goHome} />
+        )}
+        {screen === 'admin' && profile.isAdmin && (
+          <AdminDashboard onBack={goHome} />
         )}
       </main>
     </div>

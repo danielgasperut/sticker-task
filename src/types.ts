@@ -65,4 +65,5 @@ export type Screen =
   | 'trophy-room'
   | 'manage-categories'
   | 'manage-children'
-  | 'analytics';
+  | 'analytics'
+  | 'admin';
